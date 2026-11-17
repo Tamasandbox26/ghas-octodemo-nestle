@@ -1,0 +1,69 @@
+name: Build and Deploy to AKS (Code-to-Cloud)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write
+  contents: read
+  security-events: write
+
+env:
+  ACR_NAME: ${{ vars.ACR_NAME }}
+  RESOURCE_GROUP: ${{ vars.RESOURCE_GROUP }}
+  AKS_CLUSTER_NAME: ${{ vars.AKS_CLUSTER_NAME }}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Build and push container image to ACR
+        id: build-image
+        run: |
+          az account set --subscription "${{ vars.AZURE_SUBSCRIPTION_ID }}"
+          az acr login --name "$ACR_NAME"
+          LOGIN_SERVER="${ACR_NAME}.azurecr.io"
+          IMAGE_TAG="${{ github.sha }}"
+          docker build \
+            --label "org.opencontainers.image.source=https://github.com/Tamasandbox26/ghas-octodemo-nestle" \
+            --label "org.opencontainers.image.revision=${{ github.sha }}" \
+            -t "${LOGIN_SERVER}/ghas-octodemo-nestle:${IMAGE_TAG}" \
+            -t "${LOGIN_SERVER}/ghas-octodemo-nestle:latest" .
+          docker push "${LOGIN_SERVER}/ghas-octodemo-nestle:${IMAGE_TAG}"
+          docker push "${LOGIN_SERVER}/ghas-octodemo-nestle:latest"
+          echo "login-server=${LOGIN_SERVER}" >> "$GITHUB_OUTPUT"
+          echo "image-tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up kubelogin
+        uses: azure/use-kubelogin@v1
+        with:
+          kubelogin-version: 'v0.0.34'
+
+      - name: Wait for AKS cluster and deploy
+        run: |
+          for i in $(seq 1 30); do
+            STATE=$(az aks show -g "$RESOURCE_GROUP" -n "$AKS_CLUSTER_NAME" --query "provisioningState" -o tsv)
+            echo "AKS provisioningState: $STATE"
+            if [ "$STATE" = "Succeeded" ]; then break; fi
+            sleep 10
+          done
+          az aks get-credentials --resource-group "$RESOURCE_GROUP" --name "$AKS_CLUSTER_NAME" --overwrite-existing
+          kubelogin convert-kubeconfig -l azurecli
+          sed -e "s#__ACR_LOGIN_SERVER__#${{ steps.build-image.outputs.login-server }}#g" \
+              -e "s#__IMAGE_TAG__#${{ steps.build-image.outputs.image-tag }}#g" \
+              k8s/deployment.yaml > k8s/rendered-deployment.yaml
+          kubectl apply -f k8s/rendered-deployment.yaml
+          kubectl rollout status deployment/ghas-octodemo-nestle --timeout=180s
+          kubectl get svc ghas-octodemo-nestle -o wide
