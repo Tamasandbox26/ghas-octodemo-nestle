@@ -1,6 +1,8 @@
 # Octodemo GHAS + Microsoft Defender for Cloud (DCSPM) Demo
 
-This repository demonstrates the end-to-end integration between **GitHub Advanced Security (GHAS)** and **Microsoft Defender for Cloud (Defender CSPM / DevOps Security)**:
+This repository demonstrates the integration between **GitHub Advanced Security (GHAS)** and **Microsoft Defender for Cloud (Defender CSPM / DevOps Security)**.
+
+The original examples below are **scan-only**. Do not execute or deploy them. The `Publish private demo runtime` workflow builds only `runtime/` and publishes a single Linux/amd64 image manifest. For deployment, substitute the full ACR `repository@sha256:...` for `__RUNTIME_IMAGE_BY_DIGEST__` in `k8s/runtime.yaml`. The runtime has no Kubernetes Service and listens only on loopback.
 
 1. **Code Scanning (CodeQL) & Copilot Autofix**:
    - SQL Injection (`/api/orders` in `src/app.js`)
