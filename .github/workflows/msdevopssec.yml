@@ -1,0 +1,39 @@
+name: Microsoft Security DevOps PR annotations
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'demo/pr-annotations/**'
+      - '.github/workflows/msdevopssec.yml'
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+  security-events: write
+
+jobs:
+  scan:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          sparse-checkout: demo/pr-annotations
+      - id: msdo
+        uses: microsoft/security-devops-action@cf28f87c67770dbaa208cce3665fafc849f77507 # v1.12.1
+        with:
+          categories: IaC
+          tools: checkov
+      - uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        with:
+          sarif_file: ${{ steps.msdo.outputs.sarifFile }}
+          category: msdo-pr-annotations
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: msdo-pr-annotations
+          path: ${{ steps.msdo.outputs.sarifFile }}
+          if-no-files-found: error
